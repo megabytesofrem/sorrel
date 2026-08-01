@@ -63,11 +63,11 @@ pub enum TokenKind {
     #[token("<")]
     LessThan,
     #[token("<=")]
-    LessThanEqual,
+    LessEqual,
     #[token(">")]
     GreaterThan,
     #[token(">=")]
-    GreaterThanEqual,
+    GreaterEqual,
     #[token("&&")]
     DoubleAmpersand,
     #[token("||")]

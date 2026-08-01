@@ -4,9 +4,9 @@ An experimental programming language. 🌿
 ## Syntax
 ```
 def main() {
-  let x: i32 = 5 in
-  let y: i32 = 10 in
-  let z: i32 = x + y in
+  let x: i32 = 5
+  let y: i32 = 10
+  let z: i32 = x + y
   print(z)
 }
 ```
