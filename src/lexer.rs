@@ -116,7 +116,10 @@ pub enum TokenKind {
     F32,
     #[regex(r"f64")]
     F64,
-
+    #[regex(r"isize")]
+    ISize,
+    #[regex(r"usize")]
+    USize,
     #[token("char")]
     CharType,
     #[token("str")]

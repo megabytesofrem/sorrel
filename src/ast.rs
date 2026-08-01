@@ -5,8 +5,8 @@
 use crate::ast::operator::{BinaryOp, UnaryOp};
 use crate::ast::types::{RegionId, Type};
 
-mod operator;
-mod types;
+pub mod operator;
+pub mod types;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
@@ -14,6 +14,7 @@ pub enum Literal {
     Int(i64),
     Float(f64),
     String(String),
+    Char(char),
     Bool(bool),
 
     Array {
