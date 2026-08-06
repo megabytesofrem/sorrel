@@ -1,9 +1,11 @@
-use crate::ast::Literal;
 use crate::ast::types::{RegionId, Type};
+use crate::ast::{Expr, Literal};
 use crate::lexer::{Lexer, Token, TokenKind};
 
 use lasso::{Key, Rodeo};
 use std::iter::Peekable;
+
+mod expression;
 
 pub struct Parser<'parse> {
     lexer: Peekable<Lexer<'parse>>,
@@ -189,6 +191,9 @@ impl<'parse> Parser<'parse> {
         Ok((identifier, ty))
     }
 
+    // Type parsing
+    // -------------------------
+
     fn base_type(&mut self) -> Result<Type, String> {
         let type_token = self.any_of(&[
             TokenKind::U8,
@@ -270,52 +275,7 @@ impl<'parse> Parser<'parse> {
         }
     }
 
-    fn parse_literal(&mut self, token: Token<'parse>) -> Result<Literal, String> {
-        match token.kind {
-            TokenKind::IntLit => {
-                let value = token
-                    .lexeme
-                    .parse::<i64>()
-                    .map_err(|_| "Invalid integer literal")?;
-
-                Ok(Literal::Int(value))
-            }
-            TokenKind::FloatLit => {
-                let value = token
-                    .lexeme
-                    .parse::<f64>()
-                    .map_err(|_| "Invalid float literal")?;
-
-                Ok(Literal::Float(value))
-            }
-            TokenKind::StringLit => {
-                let value = token.lexeme.to_string();
-                Ok(Literal::String(value))
-            }
-            TokenKind::BoolLit => {
-                let value = match token.lexeme {
-                    "true" => true,
-                    "false" => false,
-                    _ => return Err("Invalid boolean literal".to_string()),
-                };
-                Ok(Literal::Bool(value))
-            }
-            TokenKind::CharLit => {
-                let value = token
-                    .lexeme
-                    .chars()
-                    .nth(1)
-                    .ok_or_else(|| "Invalid character literal".to_string())?;
-                Ok(Literal::Char(value))
-            }
-            TokenKind::LBracket => todo!("Array literals are not yet implemented"),
-
-            _ => Err(format!(
-                "Unexpected token kind {:?} at position {}",
-                token.kind, token.span.start
-            )),
-        }
-    }
+    // -------------------------
 }
 
 #[cfg(test)]
@@ -351,5 +311,19 @@ mod tests {
                 RegionId(1),
             ))
         );
+    }
+
+    #[test]
+    fn parses_expression() {
+        let mut parser = Parser::new("1 + 2 * 3 - 4 / 5");
+        let expr = parser.parse_expression().unwrap();
+        println!("{:?}", expr);
+    }
+
+    #[test]
+    fn parses_borrow() {
+        let mut parser = Parser::new("&x 'b");
+        let expr = parser.parse_expression().unwrap();
+        println!("{:?}", expr);
     }
 }

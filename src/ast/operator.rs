@@ -29,7 +29,6 @@ pub enum UnaryOp {
     Negate, // -a
     Not,    // !a
     Deref,  // *a
-    Ref,    // &a
 }
 
 impl TokenKind {
@@ -70,7 +69,6 @@ impl TokenKind {
             TokenKind::Minus => Some(UnaryOp::Negate),
             TokenKind::Bang => Some(UnaryOp::Not),
             TokenKind::Star => Some(UnaryOp::Deref),
-            TokenKind::Ampersand => Some(UnaryOp::Ref),
             _ => None,
         }
     }
