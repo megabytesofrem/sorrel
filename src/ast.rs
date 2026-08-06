@@ -27,6 +27,7 @@ pub enum Literal {
 pub struct Block {
     pub region_id: RegionId,
     pub statements: Vec<Stmt>,
+    pub tail: Option<Box<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,6 +39,9 @@ pub struct TypedIdentifier {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Literal(Literal),
+
+    /// Block in expression position, e.g. `if x > 0 { 1 } else { 0 }`
+    Block(Block),
 
     // TODO: string interning
     Identifier(TypedIdentifier),
@@ -51,6 +55,17 @@ pub enum Expr {
     UnaryOp {
         op: UnaryOp,
         expr: Box<Expr>,
+    },
+
+    Assign {
+        target: Box<Expr>,
+        value: Box<Expr>,
+    },
+
+    PostAssign {
+        target: Box<Expr>,
+        op: BinaryOp,
+        value: Box<Expr>,
     },
 
     Call {
@@ -70,7 +85,7 @@ pub enum Expr {
 
     If {
         condition: Box<Expr>,
-        then_branch: Box<Expr>,
+        then_branch: Block,
         else_branch: Option<Box<Expr>>,
     },
 }
@@ -82,22 +97,17 @@ pub enum Stmt {
 
     Let {
         identifier: TypedIdentifier,
-        value: Expr,
-    },
-
-    Assign {
-        target: Expr,
-        value: Expr,
+        value: Box<Expr>,
     },
 
     For {
         iterator: TypedIdentifier,
-        iterable: Expr,
+        iterable: Box<Expr>,
         body: Block,
     },
 
     While {
-        condition: Expr,
+        condition: Box<Expr>,
         body: Block,
     },
 }
@@ -115,12 +125,12 @@ pub enum ToplevelStmt {
     },
 
     StructDecl {
-        name: TypedIdentifier,
+        name: String,
         fields: Vec<TypedIdentifier>,
     },
 
     EnumDecl {
-        name: TypedIdentifier,
+        name: String,
         variants: Vec<TypedIdentifier>,
     },
 }

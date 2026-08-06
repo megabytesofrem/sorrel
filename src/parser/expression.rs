@@ -135,9 +135,10 @@ impl<'parse> Parser<'parse> {
         Ok(lhs)
     }
 
+    // Parse prefix expressions (unary operators and references)
     fn parse_prefix(&mut self) -> Result<Expr, String> {
         match self.peek().map(|token| &token.kind) {
-            Some(TokenKind::Ampersand) => self.parse_borrow(),
+            Some(TokenKind::Ampersand) => self.parse_reference(),
 
             Some(TokenKind::Minus | TokenKind::Bang | TokenKind::Star) => self.parse_unary(),
 
@@ -145,7 +146,15 @@ impl<'parse> Parser<'parse> {
         }
     }
 
+    // Parse primary expressions such as identifiers, literals, and parenthesized expressions
     fn parse_primary(&mut self) -> Result<Expr, String> {
+        // Handle blocks first
+        // TODO: Is there a better way to do this?
+        if self.peek_is(TokenKind::LBrace) {
+            let block = self.parse_block()?;
+            return Ok(Expr::Block(block));
+        }
+
         let token = self
             .next()
             .ok_or_else(|| "Unexpected end of input".to_string())?;
@@ -167,11 +176,16 @@ impl<'parse> Parser<'parse> {
                     name: token.lexeme.to_string(),
                     type_: None,
                 })),
+                TokenKind::If => self.parse_if(),
+
+                // Calls
                 TokenKind::LParen => {
                     let expr = self.parse_expression_impl(Precedence::None)?;
                     self.expect(TokenKind::RParen)?;
                     Ok(expr)
                 }
+
+                // Unexpected token
                 _ => Err(format!(
                     "Unexpected token {:?} when parsing primary expression",
                     token.kind
@@ -180,6 +194,7 @@ impl<'parse> Parser<'parse> {
         }
     }
 
+    // Parse unary operators — which include negation, logical not, and dereference
     fn parse_unary(&mut self) -> Result<Expr, String> {
         let token = self
             .next()
@@ -200,6 +215,7 @@ impl<'parse> Parser<'parse> {
         })
     }
 
+    // Parse infix operators — which include binary operators and function calls
     fn parse_infix(&mut self, lhs: Expr, prec: Precedence) -> Result<Expr, String> {
         let token = self
             .next()
@@ -213,6 +229,35 @@ impl<'parse> Parser<'parse> {
                 return Ok(Expr::Call {
                     callee: Box::new(lhs),
                     args,
+                });
+            }
+
+            TokenKind::Equals => {
+                // Parse assignment
+                let rhs = self.parse_expression_impl(Precedence::Assignment)?;
+                return Ok(Expr::Assign {
+                    target: Box::new(lhs),
+                    value: Box::new(rhs),
+                });
+            }
+
+            TokenKind::PlusEquals
+            | TokenKind::MinusEquals
+            | TokenKind::StarEquals
+            | TokenKind::SlashEquals => {
+                // Parse post assignment (e.g., x += 1)
+                let op = token.kind.to_binary_op().ok_or_else(|| {
+                    format!(
+                        "Unexpected token {:?} when parsing post assignment",
+                        token.kind
+                    )
+                })?;
+
+                let rhs = self.parse_expression_impl(Precedence::Assignment)?;
+                return Ok(Expr::PostAssign {
+                    target: Box::new(lhs),
+                    op,
+                    value: Box::new(rhs),
                 });
             }
 
@@ -259,7 +304,7 @@ impl<'parse> Parser<'parse> {
         }
     }
 
-    fn parse_borrow(&mut self) -> Result<Expr, String> {
+    fn parse_reference(&mut self) -> Result<Expr, String> {
         self.expect(TokenKind::Ampersand)?;
 
         let expr = self.parse_expression_impl(Precedence::Unary)?;
@@ -272,6 +317,32 @@ impl<'parse> Parser<'parse> {
             expr: Box::new(expr),
             region_id,
         })
+    }
+
+    fn parse_if(&mut self) -> Result<Expr, String> {
+        // `parse_primary` already consumed the if token
+
+        // Parse the condition and then branch, mandatory
+        let condition = self.parse_expression_impl(Precedence::None)?;
+        let then_branch = self.parse_block()?;
+
+        if self.peek_is(TokenKind::Else) {
+            // Parse the else branch
+            self.expect(TokenKind::Else)?;
+            let else_branch = self.parse_expression_impl(Precedence::None)?;
+            Ok(Expr::If {
+                condition: Box::new(condition),
+                then_branch,
+                else_branch: Some(Box::new(else_branch)),
+            })
+        } else {
+            // No else branch to parse
+            Ok(Expr::If {
+                condition: Box::new(condition),
+                then_branch,
+                else_branch: None,
+            })
+        }
     }
 
     fn parse_arguments(&mut self) -> Result<Vec<Expr>, String> {

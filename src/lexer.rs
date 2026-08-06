@@ -90,6 +90,10 @@ pub enum TokenKind {
     Break,
     #[token("def")]
     Def,
+    #[token("struct")]
+    Struct,
+    #[token("enum")]
+    Enum,
     #[token("let")]
     Let,
     #[token("in")]

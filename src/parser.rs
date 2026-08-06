@@ -1,5 +1,5 @@
 use crate::ast::types::{RegionId, Type};
-use crate::ast::{Expr, Literal};
+use crate::ast::{AST, Block, Expr, Literal, Stmt, ToplevelStmt, TypedIdentifier};
 use crate::lexer::{Lexer, Token, TokenKind};
 
 use lasso::{Key, Rodeo};
@@ -26,6 +26,13 @@ impl<'parse> Parser<'parse> {
         self.lexer.peek()
     }
 
+    pub fn peek_is(&mut self, kind: TokenKind) -> bool {
+        match self.peek() {
+            Some(token) => token.kind == kind,
+            None => false,
+        }
+    }
+
     pub fn next(&mut self) -> Option<Token<'parse>> {
         let token = self.lexer.next();
         if let Some(ref t) = token {
@@ -46,6 +53,28 @@ impl<'parse> Parser<'parse> {
                 "Expected token kind {:?}, but found end of input",
                 expected_kind
             )),
+        }
+    }
+
+    pub fn previous_was(&self, kind: TokenKind) -> bool {
+        if self.position == 0 {
+            return false;
+        }
+
+        // Find the token that ends at the current position
+        let mut lexer = Lexer::new("");
+        let mut last_token: Option<Token> = None;
+
+        while let Some(token) = lexer.next() {
+            if token.span.end == self.position {
+                last_token = Some(token);
+                break;
+            }
+        }
+
+        match last_token {
+            Some(token) => token.kind == kind,
+            None => false,
         }
     }
 
@@ -276,6 +305,192 @@ impl<'parse> Parser<'parse> {
     }
 
     // -------------------------
+
+    pub fn parse(&mut self) -> Result<AST, String> {
+        let mut toplevel_statements = Vec::new();
+
+        while self.peek().is_some() {
+            let stmt = self.parse_toplevel()?;
+            toplevel_statements.push(stmt);
+        }
+
+        Ok(AST {
+            toplevel_stmts: toplevel_statements,
+        })
+    }
+
+    // Statement parsing
+    // -------------------------
+
+    fn let_statement(&mut self) -> Result<Stmt, String> {
+        self.expect(TokenKind::Let)?;
+        let (name, ty) = self.typed_identifier()?;
+        self.expect(TokenKind::Equals)?;
+        let value = self.parse_expression()?;
+
+        let identifier = TypedIdentifier {
+            name,
+            type_: Some(ty),
+        };
+
+        Ok(Stmt::Let {
+            identifier,
+            value: Box::new(value),
+        })
+    }
+
+    fn for_statement(&mut self) -> Result<Stmt, String> {
+        self.expect(TokenKind::For)?;
+        let (iterator_name, iterator_type) = self.typed_identifier()?;
+        let iterator = TypedIdentifier {
+            name: iterator_name,
+            type_: Some(iterator_type),
+        };
+        self.expect(TokenKind::In)?;
+        let iterable = self.parse_expression()?;
+        let body = self.parse_block()?;
+
+        Ok(Stmt::For {
+            iterator,
+            iterable: Box::new(iterable),
+            body,
+        })
+    }
+
+    fn while_statement(&mut self) -> Result<Stmt, String> {
+        self.expect(TokenKind::While)?;
+        let condition = self.parse_expression()?;
+        let body = self.parse_block()?;
+
+        Ok(Stmt::While {
+            condition: Box::new(condition),
+            body,
+        })
+    }
+
+    pub fn parse_statement(&mut self) -> Result<Stmt, String> {
+        let token = self
+            .peek()
+            .ok_or("Unexpected end of input while parsing statement")?;
+
+        match token.kind {
+            TokenKind::Let => self.let_statement(),
+            TokenKind::For => self.for_statement(),
+            TokenKind::While => self.while_statement(),
+
+            _ => {
+                let expr = self.parse_expression()?;
+                Ok(Stmt::Expr(expr))
+            }
+        }
+    }
+
+    // -------------------------
+
+    // Declarations
+    // -------------------------
+
+    pub fn parse_toplevel(&mut self) -> Result<ToplevelStmt, String> {
+        let token = self
+            .peek()
+            .ok_or("Unexpected end of input while parsing toplevel statement")?;
+
+        match token.kind {
+            TokenKind::Struct => self.parse_struct_declaration(),
+            TokenKind::Enum => self.parse_enum_declaration(),
+            _ => Err(format!(
+                "Unexpected token kind {:?} at position {}",
+                token.kind, token.span.start
+            )),
+        }
+    }
+
+    pub fn parse_block(&mut self) -> Result<Block, String> {
+        // Consume '{'
+        self.expect(TokenKind::LBrace)?;
+
+        let mut statements = Vec::new();
+
+        while !self.peek_is(TokenKind::RBrace) {
+            if self.peek().is_none() {
+                return Err("Unexpected end of input while parsing block".to_string());
+            }
+
+            statements.push(self.parse_statement()?);
+        }
+
+        // Consume '}'
+        self.expect(TokenKind::RBrace)?;
+
+        let tail = match statements.pop() {
+            Some(Stmt::Expr(expr)) => Some(Box::new(expr)),
+            Some(statement) => {
+                statements.push(statement);
+                None
+            }
+            None => None,
+        };
+
+        Ok(Block {
+            region_id: RegionId(0), // Replace when blocks declare/infer regions.
+            statements,
+            tail,
+        })
+    }
+
+    fn parse_struct_declaration(&mut self) -> Result<ToplevelStmt, String> {
+        self.expect(TokenKind::Struct)?;
+        let name = self.identifier()?.to_string();
+        self.expect(TokenKind::LBrace)?;
+
+        let mut fields = Vec::new();
+        while !self.peek_is(TokenKind::RBrace) {
+            let (field_name, field_type) = self.typed_identifier()?;
+            fields.push((field_name, field_type));
+            self.optional(TokenKind::Comma);
+        }
+
+        self.expect(TokenKind::RBrace)?;
+
+        Ok(ToplevelStmt::StructDecl {
+            name,
+            fields: fields
+                .into_iter()
+                .map(|(name, type_)| TypedIdentifier {
+                    name,
+                    type_: Some(type_),
+                })
+                .collect(),
+        })
+    }
+
+    fn parse_enum_declaration(&mut self) -> Result<ToplevelStmt, String> {
+        self.expect(TokenKind::Enum)?;
+        let name = self.identifier()?.to_string();
+        self.expect(TokenKind::LBrace)?;
+
+        let mut variants = Vec::new();
+        while !self.peek_is(TokenKind::RBrace) {
+            let (variant_name, variant_type) = self.typed_identifier()?;
+            variants.push((variant_name, variant_type));
+            self.optional(TokenKind::Comma);
+        }
+
+        self.expect(TokenKind::RBrace)?;
+
+        Ok(ToplevelStmt::EnumDecl {
+            name,
+            variants: variants
+                .into_iter()
+                .map(|(name, type_)| TypedIdentifier {
+                    name,
+                    type_: Some(type_),
+                })
+                .collect(),
+        })
+    }
+
+    // -------------------------
 }
 
 #[cfg(test)]
@@ -323,6 +538,27 @@ mod tests {
     #[test]
     fn parses_borrow() {
         let mut parser = Parser::new("&x 'b");
+        let expr = parser.parse_expression().unwrap();
+        println!("{:?}", expr);
+    }
+
+    #[test]
+    fn parses_assignment() {
+        let mut parser = Parser::new("x = 42");
+        let expr = parser.parse_expression().unwrap();
+        println!("{:?}", expr);
+    }
+
+    #[test]
+    fn parses_post_assignment() {
+        let mut parser = Parser::new("x += 1");
+        let expr = parser.parse_expression().unwrap();
+        println!("{:?}", expr);
+    }
+
+    #[test]
+    fn parses_if_expression() {
+        let mut parser = Parser::new("if x > 0 { x } else { 0 }");
         let expr = parser.parse_expression().unwrap();
         println!("{:?}", expr);
     }
